@@ -148,6 +148,8 @@ class Ui {
         this._visHandlers = [];
         this._focus = Object.create(null);    // stateName -> false while a popup covers it
         this._focusHandlers = [];
+        this._raised = [];                    // our screens, in the order they came to the front (topScreen)
+        this._topHandlers = [];
         this.timing = { png: 0, push: 0 };    // ms spent encoding / handing images to the HMI
         this._cnText = new HmiText();
     }
@@ -193,7 +195,26 @@ class Ui {
         const c = this.comp(name);
         if (c) c.on('action', (ev) => { log.info('click ' + name); Promise.resolve().then(() => fn(ev || {})).catch((e) => log.error('click ' + name, e)); });
     }
-    open(stateName) { return this._try('open ' + stateName, this.rhmi.openState(stateName)); }
+    open(stateName) { this._raise(stateName); return this._try('open ' + stateName, this.rhmi.openState(stateName)); }
+    /**
+     * Which of our screens is in front: the visible one raised last. The HMI's stack is no help here: it keeps
+     * a screen listed (so visible) while another of ours covers it, e.g. a menu opened from a drawn page.
+     * null when none of the visible ones was ever raised (nothing known: no screen is held back).
+     */
+    topScreen() {
+        for (let i = this._raised.length - 1; i >= 0; i--) if (this.isVisible(this._raised[i])) return this._raised[i];
+        return null;
+    }
+    onTop(fn) { this._topHandlers.push(fn); }
+    _raise(stateName) {
+        const was = this.topScreen();
+        this._raised = this._raised.filter((n) => n !== stateName).concat([stateName]);
+        this._topChanged(was);
+    }
+    _topChanged(was) {
+        const now = this.topScreen();
+        if (now !== was) this._topHandlers.forEach((fn) => { try { fn(now); } catch (e) { log.error(e); } });
+    }
     close(stateName) { return this._try('close ' + stateName, this.rhmi.closeState(stateName)); }
     isVisible(stateName) { return !!this._visible[stateName]; }
     /** false while an HMI popup covers the (visible) screen */
@@ -210,11 +231,13 @@ class Ui {
     onVisible(fn) { this._visHandlers.push(fn); }
     _setVisible(stateName, on) {
         if (this._visible[stateName] === on) return;
+        const was = this.topScreen();
         this._visible[stateName] = on;
         if (on) this._focus[stateName] = true;
         if (on) Object.keys(this._img).forEach((k) => { this._img[k].lastPx = null; });      // push the next frame for sure
         log.debug('state ' + stateName + (on ? ' visible' : ' hidden'));
         this._visHandlers.forEach((fn) => { try { fn(stateName, on); } catch (e) { log.error(e); } });
+        this._topChanged(was);
     }
 
     /**
@@ -643,7 +666,7 @@ async function runInner(impl) {
     const tracked = (SPEC.screens || []).concat(SPEC.settings && SPEC.settings.length ? [{ name: 'SETTINGS' }] : []);
     tracked.forEach((s) => {
         const st = ui.comp(s.name);
-        if (st && st.on) st.on('visible', (ev) => ui._setVisible(s.name, !!(ev && ev.visible)));
+        if (st && st.on) st.on('visible', (ev) => { if (ev && ev.visible) ui._raise(s.name); ui._setVisible(s.name, !!(ev && ev.visible)); });
         // a popup over the screen (options, warnings, calls) takes its focus: the display hides
         // the GPU overlay meanwhile, so the popup is never covered
         if (st && st.on) st.on('focus', (ev) => ui._setFocus(s.name, !(ev && ev.focus === false)));
@@ -696,7 +719,7 @@ async function runInner(impl) {
         opening = map
             .then(() => (mainState && mainState.updateResources ? mainState.updateResources().catch(() => {}) : null))
             .then(() => ui.rhmi.openEntryState(uuid))
-            .then(() => ui._setVisible(mainName, true))
+            .then(() => { ui._raise(mainName); ui._setVisible(mainName, true); })
             .catch((e) => {
                 if ((tries || 1) > 1 && /INVALID/.test(String(e && e.message ? e.message : e) + ' ' + JSON.stringify(e || {}))) again = true;
                 else log.error('open entry state', e);

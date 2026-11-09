@@ -21,6 +21,7 @@ const themes = require('../runtime/themes');
 const FRAME = 7, READY = 101, TICK = 102, TOUCH = 105, X_READY = 0x4d520101, X_STATE = 0x4d520102, X_CCU = 0x4d520103;
 const uncaught = [];
 process.on('uncaughtException', (e) => uncaught.push(e));     // (else node exits, as mgu.js does on the car)
+const SHOW_WAIT = 600;                                   // over display.js SHOW_DELAY_MS (350)
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const u32 = (...a) => Buffer.from(new Uint32Array(a).buffer);
 function msg(type, p) {
@@ -199,6 +200,40 @@ test('the one-time move to the new default theme: a theme picked on a fresh inst
     assert.strictEqual(JSON.parse(fs.readFileSync(file('old'), 'utf8'))._themeV, 2);
     o.set('theme', 'amber');
     assert.strictEqual(new S(schema).get('theme'), 'amber');
+});
+
+test('a menu of ours over the drawn page (the HMI stack still lists the page): no picture until the page is in front again', async () => {
+    // the real Ui class (as the Settings test: the class without the SDK); the HMI's events as mgu.js gets them
+    const src = fs.readFileSync(path.join(__dirname, '..', 'runtime', 'mgu.js'), 'utf8').replace(/\r\n/g, '\n');
+    const cls = src.match(/class Ui \{[\s\S]*?\n}\n/)[0];
+    const quiet = { info() {}, warn() {}, debug() {}, error() {} };
+    const Ui = new Function('log', 'HmiText', cls + '\nreturn Ui;')(quiet, class {});
+    const ui = new Ui({ rhmiApplication: { openState: () => Promise.resolve(), getByName: () => null } });
+    // the HMI's side: a screen we open is listed at once (its visible event)
+    const open = (n) => { ui.open(n); ui._setVisible(n, true); };
+    let conn = null;
+    onConn = (c) => { conn = c; ready(c); };
+    const log = { errors: [], info() {}, warn() {}, debug() {}, error: (...a) => log.errors.push(a) };
+    const spec = { id: 'test', title: 'Test', screens: [{ name: 'VIEW', kind: 'canvas', buttons: [] }, { name: 'MAIN', kind: 'menu', items: [] }] };
+    const d = new Display(ui, log, spec, { get: () => undefined, onChange() {} }, () => themes.theme());
+    try {
+        open('VIEW');
+        assert(await waitFor(() => conn && d.active() && d.own()), 'display on the renderer');
+        assert(await waitFor(() => d.gpu.visible, 1500), 'the drawn page shows');
+        open('MAIN');                                         // the rail's Search
+        assert.strictEqual(ui.topScreen(), 'MAIN');
+        assert(!d.gpu.visible, 'the menu covers the page: the picture goes at once');
+        ui._setVisible('VIEW', true); d._syncVisible();       // the stack event that lists VIEW again
+        await sleep(SHOW_WAIT);
+        assert(!d.gpu.visible, 'the stack listing the page under the menu does not bring the picture back');
+        open('VIEW');                                         // Home in the menu (MAIN stays listed)
+        assert(await waitFor(() => d.gpu.visible, 1500), 'back on the page: the picture again');
+        open('MAIN'); assert(!d.gpu.visible);
+        ui._setVisible('MAIN', false);                        // BACK: the menu leaves the stack
+        assert.strictEqual(ui.topScreen(), 'VIEW');
+        assert(await waitFor(() => d.gpu.visible, 1500), 'BACK from the menu: the picture again');
+        assert.deepStrictEqual(log.errors, []);
+    } finally { d.closeSheet(); d.gpu.close(); clearInterval(d.keepTimer); }
 });
 
 test('a new scale keeps the uploads (the renderer keeps them), a new size sends them again', async () => {

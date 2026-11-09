@@ -109,6 +109,7 @@ class Display {
             this._syncVisible();
         });
         if (this.ui.onFocus) this.ui.onFocus((name) => { if (name === this.screen.name) { this._syncVisible(); this._lost(); } });
+        if (this.ui.onTop) this.ui.onTop(() => this._syncVisible());    // a menu of ours over the page, or back
         settings.onChange((k) => {
             if (k === 'layout' || k === 'renderer') this.closeSheet();
             if (k === 'layout') { this._place(); this.lastWords = null; }
@@ -617,7 +618,10 @@ class Display {
     /** the screen is up and not covered by an HMI popup */
     _shown() {
         // the HMI's settings screen over ours (no drawn settings: another renderer, software): it shows, not our picture
-        return this.ui.isVisible(this.screen.name) && !this.ui.isVisible('SETTINGS') && (!this.ui.hasFocus || this.ui.hasFocus(this.screen.name));
+        // and none of our other screens in front of it (RideTube's Search menu, which the HMI's stack lists over it)
+        const top = this.ui.topScreen ? this.ui.topScreen() : null;
+        return this.ui.isVisible(this.screen.name) && !this.ui.isVisible('SETTINGS') && (!this.ui.hasFocus || this.ui.hasFocus(this.screen.name))
+            && (top === null || top === this.screen.name);
     }
 
     _syncVisible() {
