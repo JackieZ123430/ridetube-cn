@@ -18,6 +18,9 @@ const readline = require('readline');
 const ID_RE = /^[A-Za-z0-9_-]{11}$/;
 const SOURCE_ID = 1046, SINK_ID = 1024;
 const MEDIA_FILES = ['audio.m4a', 'index.bin', 'video.h264'];
+// a video's folder: BMW's media engine (its own uid, no capabilities) opens audio.m4a in it, so it must be able to
+// pass through; no read bit, so nobody lists it (and the cache above is 0711: the video ids aren't listed either)
+const VIDEO_DIR_MODE = 0o711;
 // thumb.rgba length -> [w, h]: 160x90 in caches from older proxies, 320x180 since 0.1.6
 const THUMB_SIZES = { 57600: [160, 90], 230400: [320, 180] };
 
@@ -1167,6 +1170,7 @@ Daemon.prototype.play = async function (id, rect, fill, at, quality, skip) {
     await this.stop(null);
     const gen = ++this.gen;
     const dir = path.join(this.opts.cacheDir, id);
+    try { fs.chmodSync(dir, VIDEO_DIR_MODE); } catch (e) { /* not fetched yet: fetchVideo makes it */ }   // (0700 before 0.3.9)
     const meta0 = readMeta(dir, id);
     this.cur = { id: id, title: meta0.title, durationMs: meta0.duration_s > 0 ? meta0.duration_s * 1000 : undefined, dir: dir, rect: rect, fill: fill, gen: gen, height: qualityHeight(quality, readJson(this.opts.leaseFile)),
         skip: Array.isArray(skip) ? skip.filter((x) => typeof x === 'string') : null, chapters: (readJson(path.join(dir, 'meta.json')) || {}).chapters };
@@ -1299,7 +1303,7 @@ Daemon.prototype.fetchVideo = function (id, dir) {
     return new Promise((resolve, reject) => {
         rmrf(dir); // a killed fetch's leftovers
         mkdirp(dir);
-        fs.chmodSync(dir, 0o700);
+        fs.chmodSync(dir, VIDEO_DIR_MODE);
         this.chownFetch(dir);
         const info = this.freshInfo(id) ? ['--info', this.infoFile(id)] : [];
         const child = this.spawnJob(['fetch', '--cache-dir', this.ytc(), '--height', String(this.cur.height || 720)].concat(info, ['--', id, dir]));

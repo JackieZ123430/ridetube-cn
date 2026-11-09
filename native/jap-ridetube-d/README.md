@@ -169,8 +169,9 @@ starts node with `--max-http-header-size=65536`: the TV page's headers pass 8 kB
   installed app (not only RideTube) can drive the daemon: play, search, read the feeds and the watch history, or
   sign the account in or out. Install only apps you trust.
 - The cache (`/var/opt/jap-ridetube-d/cache`) is 0711: the fetch uid reaches its own folders, and nobody else can
-  list what was watched. Each video's folder and the thumbnail folder are 0700, and `positions.json` (where each
-  video was left, the watch history) is 0600. The account tokens live in `state/` (0700).
+  list what was watched. Each video's folder is 0711: BMW's media engine (its own uid) opens the audio in it by
+  name, and nobody can list it. The thumbnail folder is 0700 and `positions.json` (where each video was left, the
+  watch history) 0600. The account tokens live in `state/` (0700).
 
 ## Build and test
 

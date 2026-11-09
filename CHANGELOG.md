@@ -1,5 +1,11 @@
 # Changelog
 
+## Service 0.3.9
+
+- Videos play again: each video's folder was 0700, so BMW's media engine (its own uid) could not open the audio
+  and the car answered `ITEM_UNPLAYABLE`. The folders are now 0711: the engine opens the audio by name, and
+  nobody can list them. Folders cached by 0.3.8 are fixed when they are played.
+
 ## App 0.3.8
 
 - Search: the menu opened from the rail's Search stays open. Before, the video page came back over it about a

@@ -184,6 +184,7 @@ async function main() {
 
     await t('play cached: connect + playFile + ytdec args, no fetcher', async () => {
         c.clear(); calls.length = 0; fs.writeFileSync(ytlog, ''); setMode('ok');
+        fs.chmodSync(path.join(cache, 'DemoVideo01'), 0o700);       // cached by 0.3.8 or older
         c.send({ cmd: 'play', id: 'DemoVideo01', rect: '1836x504', fill: true });
         const pl = await c.waitFor((x) => x.ev === 'state' && x.state === 'playing');
         assert.strictEqual(pl.buffering, false);
@@ -191,6 +192,8 @@ async function main() {
         assert.deepStrictEqual(called('connect')[0].a, { sourceID: 1046, sinkID: 1024 });
         assert.deepStrictEqual(called('playFile')[0].a, { path: path.join(cache, 'DemoVideo01', 'audio.m4a'), languageCode: 7695972 });
         assert.strictEqual(called('playFile')[0].inst, 'OapGenericMedia');
+        // BMW's media engine (its own uid) opens audio.m4a by name: it must pass through the folder, not list it
+        assert.strictEqual(fs.statSync(path.join(cache, 'DemoVideo01')).mode & 0o777, 0o711, 'an old 0700 folder opened up');
         await waitUntil(() => ytdecLines().length > 0);
         assert.ok(ytdecLines()[0].endsWith('argv --dir ' + path.join(cache, 'DemoVideo01') + ' --rect 1836x504 --fill --log ' + path.join(tmp, 'ytdec.log')), ytdecLines()[0]);
     });
@@ -358,6 +361,7 @@ async function main() {
         assert.strictEqual(d.fetchedMs, 12000);
         assert.strictEqual(d.preparing, id);
         assert.strictEqual(called('playFile').slice(-1)[0].a.path, path.join(dir, 'audio.m4a'));
+        assert.strictEqual(fs.statSync(dir).mode & 0o777, 0o711, 'the media engine passes through, nobody lists it');
         await waitUntil(() => ytdecLines().some((l2) => / argv --dir /.test(l2)));
     });
 
