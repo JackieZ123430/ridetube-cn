@@ -1,0 +1,11 @@
+{
+  "source": "https://github.com/JackieZ123430/ridetube-cn",
+  "apps": {
+    "jap_ridetube": {
+      "path": "apps/jap_ridetube",
+      "kitRoot": ".",
+      "version": "0.4.501",
+      "upstreamVersion": "0.4.5"
+    }
+  }
+}

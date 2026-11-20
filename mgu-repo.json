@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "components": [
+    {
+      "id": "jap_ridetube",
+      "kind": "app",
+      "path": "apps/jap_ridetube",
+      "manifest": "app.zh-CN.json",
+      "title": "RideTube",
+      "description": "ID7 非官方 YouTube 客户端，支持搜索、频道、章节及登录后的首页、订阅和稍后观看。通过车机播放声音，默认停车时显示画面。需要 jap-ridetube-d 服务。",
+      "mguHmi": [
+        "ID7"
+      ],
+      "requires": {
+        "jap-ridetube-d": "0.3.9",
+        "mgu-render": "0.6.11",
+        "mgu-inputgate": "1.0.0"
+      },
+      "icon": "icon.png",
+      "build": {
+        "python": "localization/build_zh_cn.py",
+        "args": [
+          "{id}"
+        ],
+        "sdk": "oap-sdk",
+        "output": "dist/{id}@{version}.tgz",
+        "shared": [
+          "kit",
+          "apps",
+          "localization"
+        ]
+      }
+    }
+  ],
+  "tools": []
+}
