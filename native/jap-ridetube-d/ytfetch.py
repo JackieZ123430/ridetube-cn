@@ -4,14 +4,18 @@
   ytfetch.py fetch <id> <dir> --cache-dir <d> [--height 720] [--node P] [--lease P] [--pyz P]
   ytfetch.py extract <id> <info.json> --cache-dir <d> [...]
   ytfetch.py serve --cache-dir <d> [...]
-  ytfetch.py check [<id>] --cache-dir <d> [--uid N] [--node P] [--lease P] [--pyz P]
+  ytfetch.py check [<id>] --cache-dir <d> [--uid N] [--node P] [--lease P] [--pyz P] [--json]
+  ytfetch.py request --cache-dir <d> [--lease P]      (one request as JSON on stdin, see request_cmd)
+  ytfetch.py update --cache-dir <d> [--lease P] [--pyz P] [--releases URL]
+  --no-cert-time (any command): TLS skips only the certificates' validity dates (the head unit's clock is wrong)
 
 fetch writes <dir>/meta.json, audio.m4a, video.h264 (+ .part while running) and index.bin, and prints
 one JSON event per line on stdout: meta, audio, audio_head, audio_ready, video, done | error (then exit 1).
 audio_head {ms, bytes}: <dir>/audio.head.m4a is a complete MP4 of the audio's first ms, before audio.m4a.
 fetch --info <f>: the extraction extract wrote there (if fresh), not a new one: ~2.5 s less on the car.
 serve: loads yt-dlp (~1.2 s on the car), prints {"ev":"warm"}, then runs the one argv list read from stdin.
-check is the owner's self-test, run as root over ssh (it drops to the fetch uid itself).
+check is the owner's self-test, run as root over ssh (it drops to the fetch uid itself). check --json: only its
+fast probes (yt-dlp, DNS, TLS), one JSON line each: the daemon's health command runs it as the fetch uid.
 """
 import argparse
 import copy
@@ -46,9 +50,25 @@ HEAD_MIN_MS = 60000  # audio.head.m4a covers at least this, and 1.5x the rest's 
 
 
 def video_fmt(h):
+    # https only: an HLS (m3u8) pick needs ffmpeg, which the head unit doesn't have
     lo = h * 9 // 10
-    return (f'bv[vcodec^=avc1][height<={h}][height>={lo}][fps<=30]'
-            f'/bv[vcodec^=avc1][height<={h}][fps<=30]/bv[vcodec^=avc1][height<={h}]')
+    v = 'bv[vcodec^=avc1][protocol=https]'
+    return f'{v}[height<={h}][height>={lo}][fps<=30]/{v}[height<={h}][fps<=30]/{v}[height<={h}]'
+
+
+LIVE = ('is_live', 'is_upcoming', 'post_live')  # YouTube offers these as HLS only, until the live is processed
+
+
+def unplayable(info):
+    """Why this video can't be played, shown to the user as is; None when it can."""
+    if info.get('is_live') or info.get('live_status') in LIVE:
+        return "Live videos can't be played yet"
+    fs = info.get('formats') or []
+    if not any((f.get('vcodec') or '').startswith('avc1') for f in fs):
+        return 'no avc1 video'
+    if not any((f.get('vcodec') or '').startswith('avc1') and f.get('protocol') in (None, 'https') for f in fs):
+        return "This video is only offered as a stream RideTube can't play yet"
+    return None
 
 
 # ---------------------------------------------------------------- events
@@ -64,6 +84,51 @@ def emit(**kw):
             _out.flush()
         except OSError:
             os._exit(1)  # the daemon is gone
+
+
+def clock_wrong(e):
+    """The user's message when TLS fails because the head unit's clock is off (YouTube's certificate is newer than
+    the clock, or the clock is past it); None for any other error."""
+    t = str(getattr(e, 'verify_message', '') or e)
+    if 'certificate is not yet valid' not in t and 'certificate has expired' not in t:
+        return None
+    return "Wrong head unit clock (" + time.strftime('%Y-%m-%d', time.gmtime()) + "): set the car's date and time"
+
+
+# --no-cert-time: the daemon found the head unit's clock before the service's build date (ytd.js BUILT), so every
+# certificate would look not yet valid. Only the validity dates are then not checked: OpenSSL still verifies the chain
+# against the trusted CAs, and the host name still has to match.
+NO_CHECK_TIME = 0x200000  # OpenSSL's X509_V_FLAG_NO_CHECK_TIME
+cert_time = True
+
+
+def tls_ctx():
+    """The TLS context of every request ytfetch.py makes itself (yt-dlp's get the same flag: cert_time_hook)."""
+    ctx = ssl.create_default_context(cafile=CA if os.path.isfile(CA) else None)
+    if not cert_time:
+        ctx.verify_flags |= NO_CHECK_TIME
+    return ctx
+
+
+def cert_time_hook(yt_dlp):
+    """yt-dlp builds each request handler's context in RequestHandler._make_sslcontext: the flag goes on there, read
+    when the context is made (a serve spare loads yt-dlp before its job says --no-cert-time). A yt-dlp without it:
+    its dates stay checked (said on stderr), never a yt-dlp that does not load."""
+    rh = getattr(getattr(getattr(yt_dlp, 'networking', None), 'common', None), 'RequestHandler', None)
+    if rh is None:
+        print('cert_time_hook: no yt_dlp.networking.common.RequestHandler: certificate dates stay checked', file=sys.stderr)
+        return
+    if getattr(rh._make_sslcontext, '_cert_time', False):
+        return
+    orig = rh._make_sslcontext
+
+    def make_sslcontext(self, *args, **kw):
+        ctx = orig(self, *args, **kw)
+        if not cert_time:
+            ctx.verify_flags |= NO_CHECK_TIME
+        return ctx
+    make_sslcontext._cert_time = True
+    rh._make_sslcontext = make_sslcontext
 
 
 def fail(msg):
@@ -98,6 +163,17 @@ def _skip_name(b, i):
         i += n + 1
 
 
+def _server(srv):
+    """A lease DNS entry as (address, port): '1.1.1.1', '127.0.0.1:5354', '[::1]:5354' or a bare IPv6."""
+    if srv.startswith('['):
+        h, _, p = srv[1:].partition(']')
+        return h, int(p[1:]) if p.startswith(':') else 53
+    if srv.count(':') == 1:
+        h, p = srv.split(':')
+        return h, int(p)
+    return srv, 53
+
+
 def resolve_a(host, servers, timeout=3):
     qid = os.urandom(2)
     q = (qid + b'\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00'
@@ -105,10 +181,15 @@ def resolve_a(host, servers, timeout=3):
          + b'\x00\x00\x01\x00\x01')
     err = 'no server'
     for srv in servers:
-        s = socket.socket(socket.AF_INET6 if ':' in srv else socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            addr = _server(srv)
+        except ValueError:
+            err = f'{srv}: bad server'
+            continue
+        s = socket.socket(socket.AF_INET6 if ':' in addr[0] else socket.AF_INET, socket.SOCK_DGRAM)
         try:
             s.settimeout(timeout)
-            s.sendto(q, (srv, 53))
+            s.sendto(q, addr)
             r = s.recv(4096)
             while r[:2] != qid:
                 r = s.recv(4096)
@@ -292,7 +373,41 @@ def full(t, flags, *parts):
 MATRIX = struct.pack('>9I', 0x10000, 0, 0, 0, 0x10000, 0, 0, 0, 0x40000000)
 
 
-def flat_moov(ts, stsd, durs, sizes, chunks, offsets):
+# The car's media player is given only the file (MediaPlayer.playFile has no other argument), so the cluster shows
+# what the file says: iTunes-style tags in moov/udta/meta/ilst, as music players read them. Without them it shows
+# "unknown title" and "unknown artist".
+def tags_udta(title=None, artist=None, cover=None):
+    """moov's udta with the title (©nam), the artist (©ART) and a JPEG or PNG cover (covr); b'' when none."""
+    def text(t, s):
+        return box(t, box(b'data', struct.pack('>II', 1, 0), str(s)[:255].encode('utf-8')))  # 1: UTF-8
+    items = [text(t, s) for t, s in ((b'\xa9nam', title), (b'\xa9ART', artist)) if s]
+    if cover:
+        kind = 14 if cover[:8] == b'\x89PNG\r\n\x1a\n' else 13  # 13: JPEG, 14: PNG
+        items.append(box(b'covr', box(b'data', struct.pack('>II', kind, 0), cover)))
+    if not items:
+        return b''
+    hdlr = full(b'hdlr', 0, b'\0' * 4, b'mdir', b'appl', b'\0' * 8, b'\0')
+    return box(b'udta', full(b'meta', 0, hdlr, box(b'ilst', *items)))
+
+
+COVER_URL = 'https://i.ytimg.com/vi/{}/mqdefault.jpg'  # 320x180: the whole picture, no letterbox bars
+COVER_MAX = 256 * 1024
+
+
+def fetch_cover(vid, ctx=None, timeout=5):
+    """The video's thumbnail as JPEG bytes for the cover tag, or None (no picture is no failure)."""
+    try:
+        with urllib.request.urlopen(COVER_URL.format(vid), timeout=timeout, context=ctx) as r:
+            data = r.read(COVER_MAX + 1)
+    except (OSError, http.client.HTTPException, ValueError) as e:
+        if hasattr(e, 'close'):
+            e.close()  # an HTTPError holds its response open
+        print(f'cover: {e}', file=sys.stderr, flush=True)
+        return None
+    return data if 0 < len(data) <= COVER_MAX and data[:2] == b'\xff\xd8' else None
+
+
+def flat_moov(ts, stsd, durs, sizes, chunks, offsets, udta=b''):
     stts, run = [], None
     for d in durs:
         if run and run[1] == d:
@@ -318,13 +433,13 @@ def flat_moov(ts, stsd, durs, sizes, chunks, offsets):
                 struct.pack('>HHHH', 0, 0, 0x0100, 0), MATRIX, b'\0' * 8)
     mvhd = full(b'mvhd', 0, struct.pack('>IIIIIH', 0, 0, ts, total, 0x10000, 0x0100), b'\0' * 10,
                 MATRIX, b'\0' * 24, struct.pack('>I', 2))
-    return box(b'moov', mvhd, box(b'trak', tkhd, mdia))
+    return box(b'moov', mvhd, box(b'trak', tkhd, mdia), udta)
 
 
-def flatten_m4a(src, dst, limit=None):
+def flatten_m4a(src, dst, limit=None, udta=b''):
     """Rewrite a fragmented (DASH) m4a as ftyp+moov+mdat; edit lists are dropped. Returns (dst size, ms).
     limit: only src[:limit] is written yet (the rest may be zeros): the samples entirely inside it; a plain
-    MP4 then gives None (it cannot be cut)."""
+    MP4 then gives None (it cannot be cut). udta: tags_udta's box, in the moov (a plain MP4 is copied as it is)."""
     with open(src, 'rb') as f:
         top, limit_ = [], os.fstat(f.fileno()).st_size if limit is None else limit
         while True:
@@ -373,13 +488,13 @@ def flatten_m4a(src, dst, limit=None):
             raise ValueError('audio: no samples')
         ftyp = box(b'ftyp', b'M4A ', struct.pack('>I', 0x200), b'M4A isomiso2')
         n = len(chunks)
-        head = len(ftyp) + len(flat_moov(tk['ts'], tk['stsd'], durs, sizes, chunks, [0] * n)) + 8
+        head = len(ftyp) + len(flat_moov(tk['ts'], tk['stsd'], durs, sizes, chunks, [0] * n, udta)) + 8
         offsets, o, i = [], head, 0
         for _, k in chunks:
             offsets.append(o)
             o += sum(sizes[i:i + k])
             i += k
-        moov2 = flat_moov(tk['ts'], tk['stsd'], durs, sizes, chunks, offsets)
+        moov2 = flat_moov(tk['ts'], tk['stsd'], durs, sizes, chunks, offsets, udta)
         if o - head + 8 > 0xffffffff:
             raise ValueError('audio: over 4 GB')
         with open(dst, 'wb') as g:
@@ -622,10 +737,23 @@ class _Log:
         self.last = msg
 
 
+def pick_pyz(pyz):
+    """The yt-dlp to load: --pyz (an update, below), unless the service's own ytdlp.pyz is as new or that one is
+    unreadable (a newer RideTube service brought a newer yt-dlp than the last update)."""
+    own = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ytdlp.pyz')
+    if not pyz or os.path.abspath(pyz) == own:
+        return own
+    mine, theirs = pyz_version(own), pyz_version(pyz)
+    if not theirs:
+        return own
+    return own if mine and ytdlp_version_key(mine) >= ytdlp_version_key(theirs) else pyz
+
+
 def load_ytdlp(pyz, cache_dir):
     if 'yt_dlp' in sys.modules:  # serve preloaded it
         return sys.modules['yt_dlp']
-    sys.path.insert(0, pyz or os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ytdlp.pyz'))
+    picked = pick_pyz(pyz)
+    sys.path.insert(0, picked)
     if os.path.isfile(CA) and 'certifi' not in sys.modules:
         # yt-dlp uses certifi when it can import it: this one names the car's CA bundle (none is in ytdlp.pyz)
         import types
@@ -635,8 +763,23 @@ def load_ytdlp(pyz, cache_dir):
         sys.modules['certifi'] = certifi
     else:
         os.environ['TMPDIR'] = cache_dir
-    import yt_dlp
+    try:
+        import yt_dlp
+    except Exception:  # noqa: BLE001 - an update that does not import: the service's own ytdlp.pyz
+        own = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ytdlp.pyz')
+        if picked == own:
+            raise
+        sys.path.remove(picked)
+        for n in [n for n in sys.modules if n.split('.')[0] in ('yt_dlp', 'yt_dlp_ejs')]:
+            del sys.modules[n]
+        sys.path.insert(0, own)
+        import yt_dlp
+    try:
+        import yt_dlp.networking.common  # noqa: F401 - cert_time_hook's
+    except ImportError:
+        pass
     no_captions(yt_dlp)
+    cert_time_hook(yt_dlp)
     return yt_dlp
 
 
@@ -706,15 +849,29 @@ def load_info(path, vid):
     return None
 
 
+def info_dir(path):
+    """extract's folder (cache/ytdlp/info): made and pruned here, as the fetch uid (the daemon, root, never
+    writes below the fetch uid's folders)."""
+    d = os.path.dirname(path)
+    os.makedirs(d, mode=0o700, exist_ok=True)
+    for n in os.listdir(d):
+        try:
+            if time.time() - os.lstat(os.path.join(d, n)).st_mtime > INFO_MAX_S:
+                os.unlink(os.path.join(d, n))
+        except OSError:
+            pass
+
+
 def extract_cmd(a):
     if not ID_RE.match(a.id):
         fail('bad id')
+    info_dir(a.dir)
     install_dns(a.lease)
     yt_dlp = load_ytdlp(a.pyz, a.cache_dir)
     try:
         info = extract(yt_dlp, a, 'https://www.youtube.com/watch?v=' + a.id)
     except Exception as e:  # noqa: BLE001
-        fail(f'extract: {e}')
+        fail(clock_wrong(e) or f'extract: {e}')
     tmp = a.dir + '.tmp'
     with open(tmp, 'w') as f:
         json.dump(yt_dlp.YoutubeDL.sanitize_info(info), f)
@@ -723,9 +880,10 @@ def extract_cmd(a):
     return 0
 
 
-def audio_ranged(a, ya, info, meta):
+def audio_ranged(a, ya, info, meta, udta=lambda: b''):
     """The audio format yt-dlp picks, fetched with ranged_get; audio.head.m4a + audio_head once the prefix
-    covers max(HEAD_MIN_MS, 1.5x the rest's estimated time). None when the format is not plain https with a size."""
+    covers max(HEAD_MIN_MS, 1.5x the rest's estimated time). None when the format is not plain https with a size.
+    udta(): the tags for the head (as far as known when it is written)."""
     f = ya.process_ie_result(copy.deepcopy(info), download=False)
     f = (f.get('requested_downloads') or [f])[0]
     total = f.get('filesize')
@@ -748,7 +906,7 @@ def audio_ranged(a, ya, info, meta):
         rate = done / max(time.monotonic() - t0, 0.1)
         need = max(HEAD_MIN_MS, 1500 * (total - done) / rate)
         try:
-            r = flatten_m4a(src, head_part, limit=prefix)
+            r = flatten_m4a(src, head_part, limit=prefix, udta=udta())
         except (ValueError, struct.error, OSError) as e:
             print(f'head at {prefix}: {e}', file=sys.stderr, flush=True)
             gate.set()
@@ -763,7 +921,7 @@ def audio_ranged(a, ya, info, meta):
             gate.set()
             emit(ev='audio_head', ms=r[1], bytes=r[0])
 
-    ctx = ssl.create_default_context(cafile=CA if os.path.isfile(CA) else None)
+    ctx = tls_ctx()
     try:
         ranged_get(f['url'], f.get('http_headers') or {}, src, total, on_chunk, conns=AUDIO_CONNS, first=AUDIO_FIRST,
                    chunk=AUDIO_CHUNK, ctx=ctx, gate=gate)
@@ -800,7 +958,7 @@ def fetch(a):
     try:
         info = info or extract(yt_dlp, a, url)
     except Exception as e:  # noqa: BLE001 - any yt-dlp failure is reported to the daemon
-        fail(f'extract: {e}')
+        fail(clock_wrong(e) or f'extract: {e}')
     meta = {'id': a.id, 'title': info.get('title'), 'channel': info.get('channel') or info.get('uploader'),
             'duration_s': info.get('duration'),
             'chapters': [[int((c.get('start_time') or 0) * 1000), str(c.get('title') or '')[:80]]
@@ -809,21 +967,35 @@ def fetch(a):
         json.dump(meta, f)
     os.replace(os.path.join(a.dir, 'meta.json.tmp'), os.path.join(a.dir, 'meta.json'))
     emit(ev='meta', title=meta['title'], duration_s=meta['duration_s'], chapters=meta['chapters'])
-    if not any((x.get('vcodec') or '').startswith('avc1') for x in info.get('formats') or []):
-        fail('no avc1 video')
+    why = unplayable(info)
+    if why:
+        fail(why)
+    # the tags the car's player shows (title, channel, the thumbnail as cover): the cover fetched alongside, so
+    # playback never waits for it; the head gets what is there when it is written, audio.m4a waits up to 5 s
+    art = {'cover': None}
+
+    def cover():
+        art['cover'] = fetch_cover(a.id, tls_ctx())
+
+    tc = threading.Thread(target=cover, daemon=True)
+    tc.start()
+
+    def udta():
+        return tags_udta(meta['title'], meta['channel'], art['cover'])
 
     def audio():
         try:
             src = None
             try:
-                src = audio_ranged(a, ya, info, meta)
+                src = audio_ranged(a, ya, info, meta, udta)
             except Exception as e:  # noqa: BLE001 - yt-dlp's own download, as before 0.2.1
                 print(f'ranged audio failed, yt-dlp downloads it: {e}', file=sys.stderr, flush=True)
             if src is None:
                 r = ya.process_ie_result(copy.deepcopy(info), download=True)
                 src = r['requested_downloads'][0]['filepath']
             part = os.path.join(a.dir, 'audio.m4a.part')
-            n, _ = flatten_m4a(src, part)
+            tc.join(timeout=5)
+            n, _ = flatten_m4a(src, part, udta=udta())
             os.replace(part, os.path.join(a.dir, 'audio.m4a'))
             os.remove(src)
             done_a['ok'] = True
@@ -883,11 +1055,14 @@ def check(a):
         if uid is None:
             with open('/var/opt/jap-ridetube-d/state/uids.json') as f:
                 uid = int(json.load(f)['fetch'])
-        os.makedirs(work, exist_ok=True)
-        os.chown(work, uid, uid)
+        if not a.json:
+            os.makedirs(work, exist_ok=True)
+            os.chown(work, uid, uid)
         os.setgroups([])
         os.setgid(uid)
         os.setuid(uid)
+    if a.json:
+        return check_json(a)
     os.makedirs(work, exist_ok=True)
     ok_all = []
 
@@ -906,7 +1081,7 @@ def check(a):
     try:
         import ssl
         import urllib.request
-        ctx = ssl.create_default_context(cafile=CA if os.path.isfile(CA) else None)
+        ctx = tls_ctx()
         with urllib.request.urlopen('https://www.youtube.com/robots.txt', context=ctx, timeout=10) as r:
             line('tls robots.txt', r.status == 200, t, f'HTTP {r.status} {len(r.read())} B')
     except Exception as e:  # noqa: BLE001
@@ -932,7 +1107,8 @@ def check(a):
     shutil.rmtree(out, ignore_errors=True)
     os.makedirs(out)
     cmd = [sys.executable, '-I', os.path.abspath(__file__), 'fetch', vid, out, '--cache-dir', cache,
-           '--height', str(a.height), '--node', a.node, '--lease', a.lease] + (['--pyz', a.pyz] if a.pyz else [])
+           '--height', str(a.height), '--node', a.node, '--lease', a.lease] + (['--pyz', a.pyz] if a.pyz else []) + \
+        ([] if cert_time else ['--no-cert-time'])
     t = time.monotonic()
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True, env={}, cwd='/')
     t_audio = t_head = t_lead = t_dl = None  # t_dl: first progress event, after yt-dlp's 'sleep as required by the site'
@@ -970,6 +1146,287 @@ def check(a):
     return 0 if all(ok_all) else 1
 
 
+def _why(e):
+    """An exception as one of a few fixed phrases (health.js shows only these): resolve_a's errors name the DNS server."""
+    if isinstance(e, urllib.error.URLError) and isinstance(e.reason, BaseException):
+        e = e.reason
+    if isinstance(e, urllib.error.HTTPError):
+        return f'HTTP {e.code}'
+    if isinstance(e, ssl.SSLCertVerificationError):
+        return 'wrong clock: ' + time.strftime('%Y-%m-%d', time.gmtime()) if clock_wrong(e) else 'certificate not trusted'
+    for kind, phrase in ((ssl.SSLError, 'TLS error'), ((socket.timeout, TimeoutError), 'timed out'),
+                         (socket.gaierror, 'name not resolved'), (ConnectionRefusedError, 'connection refused'),
+                         (ConnectionResetError, 'connection reset'), (ImportError, 'not found')):
+        if isinstance(e, kind):
+            return phrase
+    import errno
+    return {errno.ENETUNREACH: 'network unreachable', errno.EHOSTUNREACH: 'no route to host'}.get(getattr(e, 'errno', None), 'failed')
+
+
+def check_json(a):
+    """check --json: the daemon's health probes only (yt-dlp loads, DNS, TLS to YouTube), no extract, no fetch, no
+    file written. One JSON line each, flushed as it is known: {"ev":"check","name","ok","s","info"} (+ "version",
+    "servers"), then {"ev":"done","ok"}. No address in any line: the daemon shows them on the car's screen."""
+    ok_all = []
+
+    def line(name, ok, t0, info, **kw):
+        ok_all.append(bool(ok))
+        print(json.dumps(dict(ev='check', name=name, ok=bool(ok), s=round(time.monotonic() - t0, 2), info=info, **kw)),
+              flush=True)
+
+    t = time.monotonic()
+    try:
+        load_ytdlp(a.pyz, a.cache_dir)
+        from yt_dlp.version import __version__ as v
+        line('ytdlp', True, t, 'loaded', version=v)
+    except Exception as e:  # noqa: BLE001
+        line('ytdlp', False, t, _why(e))
+    t = time.monotonic()
+    servers = install_dns(a.lease)
+    resolved = False
+    try:
+        socket.getaddrinfo('www.youtube.com', 443)
+        resolved = True
+        line('dns', bool(servers), t, 'resolved' if servers else 'no uplink lease', servers=len(servers))
+    except OSError as e:
+        line('dns', False, t, _why(e), servers=len(servers))
+    t = time.monotonic()
+    if not resolved:
+        line('tls', False, t, 'skipped: no DNS')
+    else:
+        try:
+            ctx = tls_ctx()
+            with urllib.request.urlopen('https://www.youtube.com/robots.txt', context=ctx, timeout=5) as r:
+                line('tls', r.status == 200, t, f'HTTP {r.status}')
+        except Exception as e:  # noqa: BLE001
+            line('tls', False, t, _why(e))
+    print(json.dumps({'ev': 'done', 'ok': all(ok_all)}), flush=True)
+    return 0 if all(ok_all) else 1
+
+
+REQUEST_MAX = 8 << 20
+
+
+def request_cmd():
+    """request: one HTTP request for the daemon, as its `ytd.js --fetch` child does it (the daemon runs this one instead
+    while the clock is wrong: Node 8 cannot skip only the certificate dates). {method, url, headers, body (JSON or
+    null), timeoutMs} on stdin; {status, body (utf8)} or {error} on stdout. No redirects, 8 MiB at most, plain http
+    only to this machine (the tests' fake relay)."""
+    try:
+        q = json.loads(sys.stdin.read())
+        u = urllib.parse.urlsplit(str(q['url']))
+        loop = u.scheme == 'http' and u.hostname in ('127.0.0.1', 'localhost')
+        if u.scheme != 'https' and not loop:
+            raise ValueError('https only')
+        body = None if q.get('body') is None else json.dumps(q['body'], separators=(',', ':'), ensure_ascii=False).encode()
+        h = dict(q.get('headers') or {})
+        if body is not None:
+            h['Content-Type'] = 'application/json'
+        timeout = (q.get('timeoutMs') or 10000) / 1000
+        c = (http.client.HTTPConnection(u.hostname, u.port, timeout=timeout) if loop
+             else http.client.HTTPSConnection(u.hostname, u.port, timeout=timeout, context=tls_ctx()))
+        c.request(str(q.get('method') or 'GET'), (u.path or '/') + ('?' + u.query if u.query else ''), body=body, headers=h)
+        r = c.getresponse()
+        data = r.read(REQUEST_MAX + 1)
+        if len(data) > REQUEST_MAX:
+            raise ValueError('answer too big')
+        out = {'status': r.status, 'body': data.decode('utf-8', 'replace')}
+    except Exception as e:  # noqa: BLE001 - every failure is the daemon's error text
+        out = {'error': clock_wrong(e) or str(e)[:300] or type(e).__name__}
+    sys.stdout.buffer.write(json.dumps(out, ensure_ascii=False).encode('utf-8'))
+    sys.stdout.flush()
+# ---------------------------------------------------------------- yt-dlp updates
+# YouTube changes break yt-dlp now and then, and a fixed yt-dlp is out within days; the one in ytdlp.pyz waits for the
+# next RideTube service. update fetches the newest yt-dlp release itself, as the fetch uid: the official zipapp,
+# checked against the release's SHA2-256SUMS, repacked as tools/build_pyz.sh does (yt_dlp, yt_dlp_ejs and
+# __main__.py, precompiled for this Python), loaded once in a child, then named in <cache-dir>/pyz/current.json. The
+# daemon passes that as --pyz; ytdlp.pyz stays the fallback. Nothing is fetched when the newest is not newer than both.
+
+RELEASES = 'https://github.com/yt-dlp/yt-dlp/releases'
+YTDLP_VERSION_RE = re.compile(r'^\d{4}\.\d{2}\.\d{2}(\.\d+)?$')
+ZIPAPP_MAX = 32 << 20      # the zipapp is ~3 MiB
+SUMS_MAX = 64 << 10
+
+
+def ytdlp_version_key(v):
+    return tuple(int(x) for x in v.split('.'))
+
+
+def pyz_version(pyz):
+    """yt-dlp's __version__ in a pyz or the zipapp, read without importing it; None when unreadable."""
+    import zipfile
+    try:
+        if os.path.isdir(pyz):  # an unpacked yt-dlp on sys.path (the tests' stand-in)
+            with open(os.path.join(pyz, 'yt_dlp', 'version.py'), 'rb') as f:
+                src = f.read()
+        else:
+            with zipfile.ZipFile(pyz) as z:
+                src = z.read('yt_dlp/version.py')
+        m = re.search(r"__version__\s*=\s*'([^']+)'", src.decode('utf-8', 'replace'))
+    except Exception:  # noqa: BLE001 - BadZipFile, zlib.error: a damaged pyz is no version, never a crash
+        return None
+    return m.group(1) if m and YTDLP_VERSION_RE.match(m.group(1)) else None
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *a, **kw):
+        return None
+
+
+def latest_ytdlp(releases, ctx, timeout):
+    """The newest release's tag, from where <releases>/latest redirects (github.com, no API rate limit)."""
+    import urllib.error
+    opener = urllib.request.build_opener(_NoRedirect, urllib.request.HTTPSHandler(context=ctx))
+    loc = None
+    try:
+        with opener.open(urllib.request.Request(releases + '/latest', method='HEAD'), timeout=timeout) as r:
+            loc = r.headers.get('Location')
+    except urllib.error.HTTPError as e:
+        if e.code in (301, 302, 303, 307, 308):
+            loc = e.headers.get('Location')
+    tag = (loc or '').rstrip('/').rsplit('/', 1)[-1]
+    return tag if YTDLP_VERSION_RE.match(tag) else None
+
+
+def download(url, dst, limit, ctx, timeout):
+    """url (redirects followed) -> dst; its sha256. Past limit bytes: ValueError."""
+    import hashlib
+    h, n = hashlib.sha256(), 0
+    with urllib.request.urlopen(url, timeout=timeout, context=ctx) as r, open(dst, 'wb') as f:
+        while True:
+            b = r.read(1 << 16)
+            if not b:
+                break
+            n += len(b)
+            if n > limit:
+                raise ValueError(f'{url}: over {limit} bytes')
+            h.update(b)
+            f.write(b)
+    return h.hexdigest()
+
+
+def repack_zipapp(src, out):
+    """The official zipapp -> out, as tools/build_pyz.sh makes ytdlp.pyz: only yt_dlp, yt_dlp_ejs and __main__.py
+    (no native code), every module precompiled (unchecked-hash .pyc beside each .py: the zip can't hold new ones)."""
+    import compileall
+    import py_compile
+    import zipfile
+    tree = out + '.tree'
+    shutil.rmtree(tree, ignore_errors=True)
+    with zipfile.ZipFile(src) as z:       # the zipapp: a shebang line, then the zip
+        names = [n for n in z.namelist() if (n == '__main__.py' or n.split('/')[0] in ('yt_dlp', 'yt_dlp_ejs')) and not n.endswith('/')]
+        if not any(n.startswith('yt_dlp/') for n in names) or not any(n.startswith('yt_dlp_ejs/') for n in names):
+            raise ValueError('unexpected zipapp layout')
+        bad = [n for n in names if n.endswith(('.so', '.dylib', '.pyd'))]
+        if bad:
+            raise ValueError(f'native code in the zipapp: {bad!r}')
+        for n in names:
+            z.extract(n, tree)
+    if not compileall.compile_dir(tree, quiet=2, legacy=True, stripdir=tree,
+                                  invalidation_mode=py_compile.PycInvalidationMode.UNCHECKED_HASH):
+        raise ValueError('a module does not compile')
+    when = time.gmtime(315532800)[:6]     # zip's floor, 1980: one time for every entry, as build_pyz.sh
+    with zipfile.ZipFile(out + '.tmp', 'w', zipfile.ZIP_DEFLATED) as z:
+        for d, dirs, files in os.walk(tree):
+            dirs.sort()
+            for f in sorted(files):
+                p = os.path.join(d, f)
+                zi = zipfile.ZipInfo(os.path.relpath(p, tree), when)
+                zi.compress_type = zipfile.ZIP_DEFLATED
+                zi.external_attr = 0o644 << 16
+                with open(p, 'rb') as fh:
+                    z.writestr(zi, fh.read())
+    with open(out + '.tmp', 'rb') as fh:
+        os.fsync(fh.fileno())
+    os.replace(out + '.tmp', out)
+    shutil.rmtree(tree, ignore_errors=True)
+
+
+def loads(pyz):
+    """yt-dlp's version as a fresh Python imports it from pyz (as check.sh does), else None."""
+    code = 'import sys;sys.path.insert(0,sys.argv[1]);import yt_dlp,yt_dlp_ejs;print(yt_dlp.version.__version__)'
+    try:
+        r = subprocess.run([sys.executable, '-I', '-c', code, pyz], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                           timeout=300, env={})
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return r.stdout.decode('utf-8', 'replace').strip() if r.returncode == 0 else None
+
+
+def update(a):
+    """update --cache-dir <d> [--pyz <bundled>] [--releases URL]: one {"ev":"ytdlp", state, version, bundled} on
+    stdout, state "current" (nothing newer) or "updated" (current.json names it now); {"ev":"error"} otherwise."""
+    try:
+        os.nice(10)                       # repacking compiles ~1000 modules: after the player and the HMI
+    except OSError:
+        pass
+    install_dns(a.lease)
+    root = os.path.join(a.cache_dir, 'pyz')
+    os.makedirs(root, exist_ok=True)
+    bundled = pyz_version(a.pyz or os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ytdlp.pyz'))
+    cur = None
+    try:
+        with open(os.path.join(root, 'current.json')) as f:
+            c = json.load(f)
+        if YTDLP_VERSION_RE.match(c['version']) and pyz_version(c['pyz']) == c['version']:
+            cur = c
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    if cur and bundled and ytdlp_version_key(bundled) >= ytdlp_version_key(cur['version']):
+        os.remove(os.path.join(root, 'current.json'))   # a newer service brought this one or newer: its own again
+        shutil.rmtree(os.path.dirname(cur['pyz']), ignore_errors=True)
+        cur = None
+    have = max([v for v in (bundled, cur and cur['version']) if v], key=ytdlp_version_key, default=None)
+    ctx = tls_ctx()
+    releases = (a.releases or RELEASES).rstrip('/')
+    try:
+        latest = latest_ytdlp(releases, ctx, 20)
+    except OSError as e:
+        fail(f'yt-dlp releases: {e}')
+    if not latest:
+        fail('yt-dlp releases: no latest release')
+    if have and ytdlp_version_key(latest) <= ytdlp_version_key(have):
+        emit(ev='ytdlp', state='current', version=have, bundled=bundled)
+        return 0
+    if shutil.disk_usage(root).free < MIN_FREE + (64 << 20):
+        fail('yt-dlp: not enough space on the head unit')
+    work = os.path.join(root, latest)
+    shutil.rmtree(work, ignore_errors=True)
+    os.makedirs(work)
+    app = os.path.join(work, 'yt-dlp')
+    try:
+        download(f'{releases}/download/{latest}/SHA2-256SUMS', app + '.sums', SUMS_MAX, ctx, 30)
+        with open(app + '.sums', encoding='utf-8', errors='replace') as f:
+            want = [ln.split()[0].lower() for ln in f if len(ln.split()) == 2 and ln.split()[1].lstrip('*') == 'yt-dlp']
+        if len(want) != 1:
+            raise ValueError('no yt-dlp line in SHA2-256SUMS')
+        if download(f'{releases}/download/{latest}/yt-dlp', app, ZIPAPP_MAX, ctx, 300) != want[0]:
+            raise ValueError('sha256 mismatch: not the file the release lists')
+        if pyz_version(app) != latest:
+            raise ValueError(f'the zipapp is not {latest}')
+        pyz = os.path.join(work, 'ytdlp.pyz')
+        repack_zipapp(app, pyz)
+        got = loads(pyz)
+        if got != latest:
+            raise ValueError(f'does not load (got {got!r})')
+    except (OSError, ValueError) as e:
+        shutil.rmtree(work, ignore_errors=True)
+        fail(f'yt-dlp {latest}: {e}')
+    for n in (app, app + '.sums'):
+        os.remove(n)
+    tmp = os.path.join(root, 'current.json.tmp')
+    with open(tmp, 'w') as f:
+        json.dump({'version': latest, 'pyz': pyz, 'sha256': want[0]}, f)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, os.path.join(root, 'current.json'))
+    for n in os.listdir(root):            # the older updates
+        if n != latest and YTDLP_VERSION_RE.match(n):
+            shutil.rmtree(os.path.join(root, n), ignore_errors=True)
+    emit(ev='ytdlp', state='updated', version=latest, bundled=bundled)
+    return 0
+
+
 def validate(index_path, h264_path):
     """mgyi.validate's rules; returns the record count."""
     with open(index_path, 'rb') as f:
@@ -986,7 +1443,7 @@ def validate(index_path, h264_path):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
-    ap.add_argument('cmd', choices=('fetch', 'extract', 'serve', 'check'))
+    ap.add_argument('cmd', choices=('fetch', 'extract', 'serve', 'check', 'request', 'update'))
     ap.add_argument('id', nargs='?')
     ap.add_argument('dir', nargs='?')
     ap.add_argument('--cache-dir', required=True)
@@ -996,9 +1453,19 @@ def main(argv=None):
     ap.add_argument('--pyz')
     ap.add_argument('--uid', type=int)
     ap.add_argument('--info')
+    ap.add_argument('--json', action='store_true', help='check: the health probes only, as JSON lines')
+    ap.add_argument('--no-cert-time', action='store_true', help="TLS: skip only the certificate's validity dates")
+    ap.add_argument('--releases')
     a = ap.parse_args(argv)
+    global cert_time
+    cert_time = not a.no_cert_time
+    if a.cmd == 'request':
+        install_dns(a.lease)
+        return request_cmd()
     if a.cmd == 'check':
         return check(a)
+    if a.cmd == 'update':
+        return update(a)
     if a.cmd == 'serve':
         install_dns(a.lease)
         load_ytdlp(a.pyz, a.cache_dir).YoutubeDL(ydl_params(a, None))  # the first YoutubeDL() costs ~0.35 s more on the car
