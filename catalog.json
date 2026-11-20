@@ -1,0 +1,540 @@
+{
+  "schema": 2,
+  "components": [
+    {
+      "id": "jap_ridetube",
+      "kind": "app",
+      "title": "RideTube",
+      "description": "ID7 非官方 YouTube 客户端，支持搜索、频道、章节及登录后的首页、订阅和稍后观看。通过车机播放声音，默认停车时显示画面。需要 jap-ridetube-d 服务。",
+      "version": "0.4.501",
+      "artifact": {
+        "name": "jap_ridetube@0.4.501.tgz",
+        "size": 3273325,
+        "sha256": "b1ce75afdd8f99ff761622af3b788f963ae6e9511c50eda0750102d51c0f92b8",
+        "url": "https://github.com/JackieZ123430/MGU-CN-XIAOBAI/releases/download/source-refresh-2026-11-20/jap_ridetube%400.4.501.tgz"
+      },
+      "requires": {
+        "jap-ridetube-d": "0.4.2",
+        "mgu-render": "0.6.11",
+        "mgu-inputgate": "1.0.0"
+      },
+      "uninstallable": true,
+      "mguHmi": [
+        "ID7"
+      ],
+      "icon": "https://raw.githubusercontent.com/JackieZ123430/MGU-CN-XIAOBAI/refs/heads/main/jap_ridetube.png",
+      "iconSha256": "afbf63c28de964d4f249f062bdbddf853fe1e676cc8d62f59028ea0f1c6a9876",
+      "author": "汉化 小白151"
+    },
+    {
+      "id": "jap-ridetube-d",
+      "kind": "tool",
+      "title": "RideTube 后台",
+      "description": "RideTube 车机后台，负责网络内容获取、视频解码和原车媒体播放。",
+      "version": "0.4.2",
+      "artifact": {
+        "name": "jap-ridetube-d@0.4.2.tgz",
+        "size": 8830027,
+        "sha256": "e538a99b7fb54109bd24b2d9e2df38f71408372c31ae8a37fb14404ab2d4c43d",
+        "url": "https://github.com/JustAnotherPU/ridetube/releases/download/catalog/jap-ridetube-d@0.4.2.tgz"
+      },
+      "requires": {
+        "mgu-deploy": "0.7.0",
+        "mgu-python": "1.0.2",
+        "jap-node22": "22.23.4",
+        "mgu-render": "0.6.11"
+      },
+      "uninstallable": true,
+      "mguHmi": [
+        "ID7"
+      ]
+    },
+    {
+      "id": "mgu-inputgate",
+      "kind": "tool",
+      "version": "1.2.1",
+      "title": "旋钮输入组件",
+      "description": "将 iDrive 旋钮输入交给当前应用，支持标签、页面、设置和游戏操作。",
+      "requires": {},
+      "mguHmi": [
+        "ID7",
+        "ID8"
+      ],
+      "mguNeeds": [
+        "renderer"
+      ],
+      "mguProvides": null,
+      "optional": false,
+      "uninstallable": true,
+      "artifact": {
+        "name": "mgu-inputgate@1.2.1.tgz",
+        "size": 8554,
+        "sha256": "d424e6e7b63351579be3abe675886420f71cbad497c994ab0e6b2aa9583b224a",
+        "url": "https://github.com/JackieZ123430/MGU-CN-XIAOBAI/releases/download/source-refresh-2026-11-20/mgu-inputgate%401.2.1.tgz"
+      }
+    },
+    {
+      "id": "mgu-deploy",
+      "kind": "tool",
+      "title": "安装部署组件",
+      "description": "车机安装部署组件，提供安装、更新、回退和卸载，并保存修改前的快照。",
+      "version": "0.8.27",
+      "artifact": {
+        "name": "mgu-deploy@0.8.27.tgz",
+        "size": 168362,
+        "sha256": "57797407580d4f0c4be234e226d4f51972002adeb1ad718e3cf2ffcd00ea36b6",
+        "url": "https://github.com/robertnisipeanu/mgu-store/releases/download/mgu-deploy%400.8.27/mgu-deploy%400.8.27.tgz"
+      },
+      "texts": {
+        "ar": {
+          "title": "أداة النشر",
+          "description": "تثبّت أدواتنا وتطبيقاتنا على الوحدة الرئيسية وتحدّثها وتستعيد إصداراتها السابقة وتزيلها، مع لقطة قبل كل تغيير"
+        },
+        "cs": {
+          "title": "Nástroj nasazení",
+          "description": "Instaluje, aktualizuje, vrací zpět a odebírá naše nástroje a aplikace na hlavní jednotce a před každou změnou pořizuje snímek"
+        },
+        "da": {
+          "title": "Installationsværktøj",
+          "description": "Installerer, opdaterer, ruller tilbage og fjerner vores værktøjer og apps på hovedenheden, med et snapshot før hver ændring"
+        },
+        "de": {
+          "title": "Deploy-Tool",
+          "description": "Installiert, aktualisiert, setzt zurück und entfernt unsere Tools und Apps auf der Headunit, mit einem Snapshot vor jeder Änderung"
+        },
+        "el": {
+          "title": "Εργαλείο εγκατάστασης",
+          "description": "Εγκαθιστά, ενημερώνει, επαναφέρει και καταργεί τα εργαλεία και τις εφαρμογές μας στην κεντρική μονάδα, με στιγμιότυπο πριν από κάθε αλλαγή"
+        },
+        "es-US": {
+          "title": "Herramienta de implementación",
+          "description": "Instala, actualiza, revierte y elimina nuestras herramientas y apps en la unidad principal, con una instantánea antes de cada cambio"
+        },
+        "es": {
+          "title": "Herramienta de despliegue",
+          "description": "Instala, actualiza, revierte y elimina nuestras herramientas y apps en la unidad principal, con una instantánea antes de cada cambio"
+        },
+        "fi": {
+          "title": "Asennustyökalu",
+          "description": "Asentaa, päivittää, palauttaa ja poistaa työkalumme ja sovelluksemme pääyksikössä ja ottaa tilannevedoksen ennen jokaista muutosta"
+        },
+        "fr-CA": {
+          "title": "Outil de déploiement",
+          "description": "Installe, met à jour, restaure et supprime nos outils et applis sur le système, avec un instantané avant chaque modification"
+        },
+        "fr": {
+          "title": "Outil de déploiement",
+          "description": "Installe, met à jour, restaure et supprime nos outils et apps sur le système, avec un instantané avant chaque modification"
+        },
+        "he": {
+          "title": "כלי הפריסה",
+          "description": "מתקין, מעדכן, משחזר גרסה קודמת ומסיר את הכלים והאפליקציות שלנו במערכת, עם תמונת מצב לפני כל שינוי"
+        },
+        "hu": {
+          "title": "Telepítőeszköz",
+          "description": "Telepíti, frissíti, visszaállítja és eltávolítja eszközeinket és alkalmazásainkat a fejegységen, minden változtatás előtt pillanatképet készítve"
+        },
+        "id": {
+          "title": "Alat deploy",
+          "description": "Menginstal, memperbarui, mengembalikan, dan menghapus alat serta aplikasi kami di head unit, dengan snapshot sebelum setiap perubahan"
+        },
+        "it": {
+          "title": "Strumento di distribuzione",
+          "description": "Installa, aggiorna, ripristina e rimuove i nostri strumenti e app sul sistema, con uno snapshot prima di ogni modifica"
+        },
+        "ja": {
+          "title": "デプロイツール",
+          "description": "ヘッドユニット上の当方のツールとアプリをインストール、アップデート、ロールバック、削除し、変更のたびに事前にスナップショットを作成します"
+        },
+        "ko": {
+          "title": "배포 도구",
+          "description": "헤드 유닛에서 자체 도구와 앱을 설치, 업데이트, 롤백, 제거하며 변경할 때마다 먼저 스냅샷을 만듭니다"
+        },
+        "nb": {
+          "title": "Installasjonsverktøy",
+          "description": "Installerer, oppdaterer, ruller tilbake og fjerner verktøyene og appene våre på hovedenheten, med et øyeblikksbilde før hver endring"
+        },
+        "nl": {
+          "title": "Deploy-tool",
+          "description": "Installeert, werkt bij, zet terug en verwijdert onze tools en apps op de headunit, met een snapshot vóór elke wijziging"
+        },
+        "pl": {
+          "title": "Narzędzie wdrażania",
+          "description": "Instaluje, aktualizuje, przywraca i usuwa nasze narzędzia i aplikacje na jednostce głównej, tworząc migawkę przed każdą zmianą"
+        },
+        "pt-BR": {
+          "title": "Ferramenta de implantação",
+          "description": "Instala, atualiza, reverte e remove nossas ferramentas e apps na unidade principal, com um snapshot antes de cada alteração"
+        },
+        "pt": {
+          "title": "Ferramenta de implementação",
+          "description": "Instala, atualiza, reverte e remove as nossas ferramentas e apps na unidade principal, com um instantâneo antes de cada alteração"
+        },
+        "ro": {
+          "title": "Instrument de implementare",
+          "description": "Instalează, actualizează, readuce la versiunea anterioară și elimină instrumentele și aplicațiile noastre de pe unitatea principală, cu un snapshot înaintea fiecărei modificări"
+        },
+        "ru": {
+          "title": "Инструмент установки",
+          "description": "Устанавливает, обновляет, откатывает и удаляет наши утилиты и приложения на головном устройстве, создавая снимок перед каждым изменением"
+        },
+        "sk": {
+          "title": "Nástroj nasadenia",
+          "description": "Inštaluje, aktualizuje, vracia späť a odstraňuje naše nástroje a aplikácie na hlavnej jednotke, pred každou zmenou so snímkou stavu"
+        },
+        "sl": {
+          "title": "Orodje za namestitev",
+          "description": "Namešča, posodablja, povrača in odstranjuje naša orodja in aplikacije na glavni enoti, pred vsako spremembo s posnetkom stanja"
+        },
+        "sv": {
+          "title": "Installationsverktyg",
+          "description": "Installerar, uppdaterar, återställer och tar bort våra verktyg och appar på huvudenheten, med en ögonblicksbild före varje ändring"
+        },
+        "th": {
+          "title": "เครื่องมือติดตั้ง",
+          "description": "ติดตั้ง อัปเดต ย้อนกลับ และลบเครื่องมือและแอปของเราบนเฮดยูนิต พร้อมสแนปช็อตก่อนทุกการเปลี่ยนแปลง"
+        },
+        "tr": {
+          "title": "Dağıtım aracı",
+          "description": "Araçlarımızı ve uygulamalarımızı ana ünitede yükler, günceller, geri alır ve kaldırır; her değişiklikten önce anlık görüntü alır"
+        },
+        "uk": {
+          "title": "Інструмент встановлення",
+          "description": "Встановлює, оновлює, відкочує та видаляє наші утиліти й програми на головному пристрої, створюючи знімок перед кожною зміною"
+        },
+        "vi": {
+          "title": "Công cụ triển khai",
+          "description": "Cài đặt, cập nhật, khôi phục bản trước và gỡ bỏ các công cụ và ứng dụng của chúng tôi trên hệ thống, kèm bản chụp nhanh trước mỗi thay đổi"
+        },
+        "zh-CN": {
+          "title": "部署工具",
+          "description": "在主机上安装、更新、回滚和移除我们的工具和应用，每次更改前都会创建快照"
+        },
+        "zh-TW": {
+          "title": "部署工具",
+          "description": "在主機上安裝、更新、回復及移除我們的工具與應用程式，每次變更前都會建立快照"
+        }
+      }
+    },
+    {
+      "id": "mgu-python",
+      "kind": "tool",
+      "title": "Python 运行组件",
+      "description": "车机 Python 运行组件，供应用构建和后台程序使用。",
+      "version": "1.0.3",
+      "artifact": {
+        "name": "mgu-python@1.0.3.tgz",
+        "size": 14441404,
+        "sha256": "98ce27bcee265ba6846446ad7867193fbdc9e0447195dbf22bcfaabf7e2f2533",
+        "url": "https://github.com/robertnisipeanu/mgu-store/releases/download/mgu-python%401.0.3/mgu-python%401.0.3.tgz"
+      },
+      "mguHmi": [
+        "ID7",
+        "ID8"
+      ],
+      "texts": {
+        "ar": {
+          "title": "Python",
+          "description": "Python 3.12 للتطبيقات التي تُبنى على الوحدة الرئيسية باستخدام Python"
+        },
+        "cs": {
+          "title": "Python",
+          "description": "Python 3.12 pro aplikace, které se na hlavní jednotce sestavují v Pythonu"
+        },
+        "da": {
+          "title": "Python",
+          "description": "Python 3.12 til apps, der bygges på hovedenheden med Python"
+        },
+        "de": {
+          "title": "Python",
+          "description": "Python 3.12 für Apps, die auf der Headunit mit Python gebaut werden"
+        },
+        "el": {
+          "title": "Python",
+          "description": "Python 3.12 για εφαρμογές που μεταγλωττίζονται στην κεντρική μονάδα με Python"
+        },
+        "es-US": {
+          "title": "Python",
+          "description": "Python 3.12 para apps que se compilan en la unidad principal con Python"
+        },
+        "es": {
+          "title": "Python",
+          "description": "Python 3.12 para apps que se compilan en la unidad principal con Python"
+        },
+        "fi": {
+          "title": "Python",
+          "description": "Python 3.12 sovelluksille, jotka koostetaan pääyksikössä Pythonilla"
+        },
+        "fr-CA": {
+          "title": "Python",
+          "description": "Python 3.12 pour les applis compilées sur le système avec Python"
+        },
+        "fr": {
+          "title": "Python",
+          "description": "Python 3.12 pour les apps compilées sur le système avec Python"
+        },
+        "he": {
+          "title": "Python",
+          "description": "Python 3.12 לאפליקציות שנבנות במערכת באמצעות Python"
+        },
+        "hu": {
+          "title": "Python",
+          "description": "Python 3.12 azokhoz az alkalmazásokhoz, amelyek Pythonnal épülnek a fejegységen"
+        },
+        "id": {
+          "title": "Python",
+          "description": "Python 3.12 untuk aplikasi yang dibangun di head unit dengan Python"
+        },
+        "it": {
+          "title": "Python",
+          "description": "Python 3.12 per le app che vengono compilate sul sistema con Python"
+        },
+        "ja": {
+          "title": "Python",
+          "description": "ヘッドユニット上で Python を使ってビルドされるアプリ用の Python 3.12"
+        },
+        "ko": {
+          "title": "Python",
+          "description": "헤드 유닛에서 Python으로 빌드되는 앱을 위한 Python 3.12"
+        },
+        "nb": {
+          "title": "Python",
+          "description": "Python 3.12 for apper som bygges på hovedenheten med Python"
+        },
+        "nl": {
+          "title": "Python",
+          "description": "Python 3.12 voor apps die op de headunit met Python worden gebouwd"
+        },
+        "pl": {
+          "title": "Python",
+          "description": "Python 3.12 dla aplikacji budowanych na jednostce głównej w Pythonie"
+        },
+        "pt-BR": {
+          "title": "Python",
+          "description": "Python 3.12 para apps que são compilados na unidade principal com Python"
+        },
+        "pt": {
+          "title": "Python",
+          "description": "Python 3.12 para apps que são compiladas na unidade principal com Python"
+        },
+        "ro": {
+          "title": "Python",
+          "description": "Python 3.12 pentru aplicațiile care se compilează pe unitatea principală cu Python"
+        },
+        "ru": {
+          "title": "Python",
+          "description": "Python 3.12 для приложений, которые собираются на головном устройстве с помощью Python"
+        },
+        "sk": {
+          "title": "Python",
+          "description": "Python 3.12 pre aplikácie, ktoré sa na hlavnej jednotke zostavujú pomocou Pythonu"
+        },
+        "sl": {
+          "title": "Python",
+          "description": "Python 3.12 za aplikacije, ki se na glavni enoti gradijo s Pythonom"
+        },
+        "sv": {
+          "title": "Python",
+          "description": "Python 3.12 för appar som byggs på huvudenheten med Python"
+        },
+        "th": {
+          "title": "Python",
+          "description": "Python 3.12 สำหรับแอปที่บิลด์บนเฮดยูนิตด้วย Python"
+        },
+        "tr": {
+          "title": "Python",
+          "description": "Ana ünitede Python ile derlenen uygulamalar için Python 3.12"
+        },
+        "uk": {
+          "title": "Python",
+          "description": "Python 3.12 для програм, які збираються на головному пристрої за допомогою Python"
+        },
+        "vi": {
+          "title": "Python",
+          "description": "Python 3.12 cho các ứng dụng được dựng trên hệ thống bằng Python"
+        },
+        "zh-CN": {
+          "title": "Python",
+          "description": "为在主机上用 Python 构建的应用提供 Python 3.12"
+        },
+        "zh-TW": {
+          "title": "Python",
+          "description": "為在主機上以 Python 建置的應用程式提供 Python 3.12"
+        }
+      }
+    },
+    {
+      "id": "mgu-render",
+      "kind": "tool",
+      "title": "通用 GPU 渲染器",
+      "description": "通用 GPU 渲染组件，在应用页面或原车界面上绘制内容。",
+      "version": "0.6.25",
+      "artifact": {
+        "name": "mgu-render@0.6.25.tgz",
+        "size": 103355,
+        "sha256": "73b5444307aaf7a3a1b519cb14032869f18930749284aef557a2e0bd58d3fd61",
+        "url": "https://github.com/robertnisipeanu/mgu-store/releases/download/mgu-render%400.6.25/mgu-render%400.6.25.tgz"
+      },
+      "requires": {
+        "mgu-deploy": "0.6.9"
+      },
+      "optional": true,
+      "mguHmi": [
+        "ID7",
+        "ID8"
+      ],
+      "mguProvides": "renderer",
+      "texts": {
+        "ar": {
+          "title": "العارض",
+          "description": "يرسم شاشات التطبيقات باستخدام وحدة معالجة الرسومات، فوق واجهة HMI أو داخل صفحة التطبيق"
+        },
+        "cs": {
+          "title": "Renderer",
+          "description": "Vykresluje obrazovky aplikací na GPU, nad HMI nebo uvnitř stránky aplikace"
+        },
+        "da": {
+          "title": "Renderer",
+          "description": "Tegner apps' skærme på GPU'en, oven på HMI'en eller inde på appens side"
+        },
+        "de": {
+          "title": "Renderer",
+          "description": "Zeichnet die Bildschirme von Apps auf der GPU, über dem HMI oder in der Seite der App"
+        },
+        "el": {
+          "title": "Απόδοση γραφικών",
+          "description": "Σχεδιάζει τις οθόνες των εφαρμογών στη GPU, πάνω από το HMI ή μέσα στη σελίδα της εφαρμογής"
+        },
+        "es-US": {
+          "title": "Renderizador",
+          "description": "Dibuja las pantallas de las apps en la GPU, sobre el HMI o dentro de la página de la app"
+        },
+        "es": {
+          "title": "Renderizador",
+          "description": "Dibuja las pantallas de las apps en la GPU, sobre el HMI o dentro de la página de la app"
+        },
+        "fi": {
+          "title": "Renderöijä",
+          "description": "Piirtää sovellusten näkymät GPU:lla HMI:n päälle tai sovelluksen sivulle"
+        },
+        "fr-CA": {
+          "title": "Moteur de rendu",
+          "description": "Dessine les écrans des applis sur le GPU, par-dessus l'IHM ou dans la page de l'appli"
+        },
+        "fr": {
+          "title": "Moteur de rendu",
+          "description": "Dessine les écrans des apps sur le GPU, par-dessus l'IHM ou dans la page de l'app"
+        },
+        "he": {
+          "title": "מנוע רינדור",
+          "description": "מצייר את מסכי האפליקציות במעבד הגרפי, מעל ממשק ה-HMI או בתוך דף האפליקציה"
+        },
+        "hu": {
+          "title": "Renderelő",
+          "description": "Az alkalmazások képernyőit a GPU-n rajzolja, a HMI fölé vagy az alkalmazás oldalán belül"
+        },
+        "id": {
+          "title": "Renderer",
+          "description": "Menggambar layar aplikasi di GPU, di atas HMI atau di dalam halaman aplikasi"
+        },
+        "it": {
+          "title": "Renderer",
+          "description": "Disegna le schermate delle app sulla GPU, sopra l'HMI o nella pagina dell'app"
+        },
+        "ja": {
+          "title": "レンダラー",
+          "description": "アプリの画面を GPU で描画し、HMI の上またはアプリのページ内に表示します"
+        },
+        "ko": {
+          "title": "렌더러",
+          "description": "GPU로 앱 화면을 그려 HMI 위 또는 앱 페이지 안에 표시합니다"
+        },
+        "nb": {
+          "title": "Gjengiver",
+          "description": "Tegner appenes skjermbilder med GPU-en, over HMI-en eller inne på appens side"
+        },
+        "nl": {
+          "title": "Renderer",
+          "description": "Tekent de schermen van apps op de GPU, over de HMI of binnen de pagina van de app"
+        },
+        "pl": {
+          "title": "Renderer",
+          "description": "Rysuje ekrany aplikacji na GPU, nad HMI lub wewnątrz strony aplikacji"
+        },
+        "pt-BR": {
+          "title": "Renderizador",
+          "description": "Desenha as telas dos apps na GPU, sobre o HMI ou dentro da página do app"
+        },
+        "pt": {
+          "title": "Renderizador",
+          "description": "Desenha os ecrãs das apps na GPU, sobre o HMI ou dentro da página da app"
+        },
+        "ro": {
+          "title": "Renderer",
+          "description": "Desenează ecranele aplicațiilor pe GPU, peste HMI sau în pagina aplicației"
+        },
+        "ru": {
+          "title": "Рендерер",
+          "description": "Отрисовывает экраны приложений на GPU поверх HMI или внутри страницы приложения"
+        },
+        "sk": {
+          "title": "Renderer",
+          "description": "Vykresľuje obrazovky aplikácií na GPU, nad HMI alebo vnútri stránky aplikácie"
+        },
+        "sl": {
+          "title": "Renderer",
+          "description": "Riše zaslone aplikacij na GPU, nad HMI ali znotraj strani aplikacije"
+        },
+        "sv": {
+          "title": "Renderare",
+          "description": "Ritar appars skärmar på GPU:n, ovanpå HMI:t eller inuti appens sida"
+        },
+        "th": {
+          "title": "ตัวเรนเดอร์",
+          "description": "วาดหน้าจอของแอปด้วย GPU บน HMI หรือภายในหน้าของแอป"
+        },
+        "tr": {
+          "title": "Oluşturucu",
+          "description": "Uygulama ekranlarını GPU üzerinde, HMI'ın üstünde veya uygulamanın sayfasında çizer"
+        },
+        "uk": {
+          "title": "Рендерер",
+          "description": "Відмальовує екрани програм на GPU поверх HMI або всередині сторінки програми"
+        },
+        "vi": {
+          "title": "Trình kết xuất",
+          "description": "Vẽ màn hình của ứng dụng bằng GPU, đè lên HMI hoặc bên trong trang của ứng dụng"
+        },
+        "zh-CN": {
+          "title": "渲染器",
+          "description": "在 GPU 上绘制应用画面，叠加在 HMI 之上或显示在应用页面内"
+        },
+        "zh-TW": {
+          "title": "渲染器",
+          "description": "在 GPU 上繪製應用程式畫面，疊加於 HMI 之上或顯示在應用程式頁面內"
+        }
+      }
+    },
+    {
+      "id": "jap-node22",
+      "kind": "tool",
+      "title": "Node.js 22 运行组件",
+      "description": "Node.js 22 运行组件，供车机后台程序使用。",
+      "requires": {
+        "mgu-deploy": "0.7.0"
+      },
+      "uninstallable": true,
+      "mguHmi": [
+        "ID7"
+      ],
+      "optional": true,
+      "version": "22.23.4",
+      "artifact": {
+        "name": "jap-node22@22.23.4.tgz",
+        "size": 49203293,
+        "sha256": "c62a8e2a3803b858b4d1020cb19746c8bd9ae8b753145f80c5adf7d781692743",
+        "url": "https://github.com/JustAnotherPU/ridetube/releases/download/catalog/jap-node22@22.23.4.tgz"
+      }
+    }
+  ]
+}
